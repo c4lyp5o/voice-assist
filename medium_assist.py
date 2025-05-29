@@ -1,9 +1,8 @@
 import collections
-from commands import process_command
+from medium_assist_commands import process_command
 import numpy as np
 import os
 # import pyttsx3
-import re
 import requests
 import sounddevice as sd
 import soundfile as sf
@@ -13,7 +12,6 @@ import time
 import tkinter as tk
 from tkinter import messagebox
 import webrtcvad
-import webbrowser
 import whisper
 
 # Configuration
