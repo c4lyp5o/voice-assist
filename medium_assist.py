@@ -1,11 +1,10 @@
 import collections
-from medium_assist_commands import process_command
+from commands import process_command
 import numpy as np
 import os
 # import pyttsx3
-# import re
+import re
 import requests
-from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
 import sounddevice as sd
 import soundfile as sf
 import tempfile
@@ -13,9 +12,8 @@ import threading
 import time
 import tkinter as tk
 from tkinter import messagebox
-import torch
-# import webrtcvad
-# import webbrowser
+import webrtcvad
+import webbrowser
 import whisper
 
 # Configuration
@@ -23,10 +21,9 @@ SAMPLE_RATE = 16000
 FRAME_DURATION_MS = 30
 BLOCK_SIZE = int(SAMPLE_RATE * FRAME_DURATION_MS / 1000)
 CHANNELS = 1
-# VAD_MODE = 3
+VAD_MODE = 3
 
-# vad = webrtcvad.Vad(VAD_MODE)
-model = load_silero_vad()
+vad = webrtcvad.Vad(VAD_MODE)
 # engine = pyttsx3.init()
 model = whisper.load_model("base")  # whisper CPU-only
 last_audio_data = bytes()
@@ -64,15 +61,14 @@ def update_status(text):
     root.after(0, lambda: status_label.config(text=text))
 
 # Functions
+def speak(text):
 # if you are using pyttsx3
-# def speak(text):
 #     try:
 #         engine.say(text)
 #         engine.runAndWait()
 #     except Exception as e:
 #         update_status(f"Error: {e}")
 # if you are using coqui tts
-def speak(text):
     try:
         response = requests.get(
             f"http://localhost:5002/api/tts?text={text}&speaker_id=&style_wav=&language_id=",
@@ -89,28 +85,18 @@ def speak(text):
     except Exception as e:
         update_status(f"❌ TTS error: {e}")
 
-def record_voice():
+def record_with_vad():
     global last_audio_data
     start_spinner()
     ring_buffer = collections.deque(maxlen=10)
     speech_frames = []
     speech_started = False
-
-    # Silero settings:
-    max_silence_time = 1.0  # seconds of silence after speech to stop
-    silence_window_frames = int(max_silence_time * 1000 / FRAME_DURATION_MS)
-    silence_window = collections.deque(maxlen=silence_window_frames)
+    timeout = time.time() + 5
 
     def callback(indata, frames, time_info, status):
         nonlocal speech_started, speech_frames
-        # Convert indata to numpy array (int16) for Silero
-        audio_chunk = np.frombuffer(indata, dtype=np.int16)
-        # Silero expects float32 PCM in -1..1, so convert
-        audio_float = audio_chunk.astype(np.float32) / 32768.0
-        # Get speech probability from Silero
-        speech_prob = silero_vad(audio_float, return_seconds=False)
-
-        is_speech = speech_prob > 0.5
+        pcm_data = bytes(indata)
+        is_speech = vad.is_speech(pcm_data, SAMPLE_RATE)
 
         if is_speech:
             if not speech_started:
@@ -118,23 +104,19 @@ def record_voice():
                 speech_started = True
             speech_frames.extend(ring_buffer)
             ring_buffer.clear()
-            speech_frames.append(bytes(indata))
-            silence_window.clear()
+            speech_frames.append(pcm_data)
         elif speech_started:
-            ring_buffer.append(bytes(indata))
-            silence_window.append(False)
-            if len(silence_window) == silence_window.maxlen:
-                # If silence_window is all False, stop
-                if all(not x for x in silence_window):
-                    raise sd.CallbackStop()
+            ring_buffer.append(pcm_data)
+            if len(ring_buffer) == ring_buffer.maxlen:
+                raise sd.CallbackStop()
         else:
-            ring_buffer.append(bytes(indata))
+            ring_buffer.append(pcm_data)
 
     update_status("🎙 Listening...")
     try:
         with sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE,
-                               dtype='int16', channels=CHANNELS, callback=callback):
-            while True:
+                             dtype='int16', channels=CHANNELS, callback=callback):
+            while time.time() < timeout:
                 time.sleep(0.1)
     except sd.CallbackStop:
         pass
@@ -144,7 +126,7 @@ def record_voice():
     finally:
         stop_spinner()
         root.after(0, lambda: listen_button.config(state=tk.NORMAL))
-
+    
     if speech_frames:
         last_audio_data = b''.join(speech_frames)
         update_status("✅ Speech captured")
