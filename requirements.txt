@@ -1,0 +1,5 @@
+vosk
+pyaudio
+pyttsx3
+requests
+sounddevice
