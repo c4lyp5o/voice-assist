@@ -1,5 +1,10 @@
-vosk
-pyaudio
+numpy
 pyttsx3
+pyaudio
 requests
 sounddevice
+soundfile
+torch
+whisper
+silero-vad
+tk
